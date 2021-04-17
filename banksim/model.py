@@ -1,6 +1,6 @@
 from mesa import Model
 
-from numba import prange
+from numba import njit, prange
 
 from banksim.activation import MultiStepActivation
 from banksim.agents.bank import Bank
