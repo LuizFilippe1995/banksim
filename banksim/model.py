@@ -1,5 +1,7 @@
 from mesa import Model
 
+from numba import prange
+
 from banksim.activation import MultiStepActivation
 from banksim.agents.bank import Bank
 from banksim.agents.central_bank import CentralBank
@@ -66,14 +68,16 @@ class BankingModel(Model):
             ExogenousFactors.DefaultEWADampingFactor)
 
         # Depositors and Corporate Clients (Firms)
-        if ExogenousFactors.standardCorporateClients:
-            _params_corporate_clients = (ExogenousFactors.standardCorporateClientDefaultRate,
-                                         ExogenousFactors.standardCorporateClientLossGivenDefault,
-                                         ExogenousFactors.standardCorporateClientLoanInterestRate)
-        else:
-            _params_corporate_clients = (ExogenousFactors.wholesaleCorporateClientDefaultRate,
-                                         ExogenousFactors.wholesaleCorporateClientLossGivenDefault,
-                                         ExogenousFactors.wholesaleCorporateClientLoanInterestRate)
+        
+        
+        
+        _params_corporate_clientsHighRisk = (ExogenousFactors.HighRiskCorporateClientDefaultRate,
+                                         ExogenousFactors.HighRiskCorporateClientLossGivenDefault,
+                                         ExogenousFactors.HighRiskCorporateClientLoanInterestRate)
+        
+        _params_corporate_clientsLowRisk = (ExogenousFactors.LowRiskCorporateClientDefaultRate,
+                                         ExogenousFactors.LowRiskCorporateClientLossGivenDefault,
+                                         ExogenousFactors.LowRiskCorporateClientLoanInterestRate)
 
         for bank in self.schedule.banks:
             for i in range(ExogenousFactors.numberDepositorsPerBank):
@@ -81,21 +85,37 @@ class BankingModel(Model):
                 bank.depositors.append(depositor)
                 self.schedule.add_depositor(depositor)
             for i in range(ExogenousFactors.numberCorporateClientsPerBank):
-                corporate_client = CorporateClient(*_params_corporate_clients, bank, self)
-                bank.corporateClients.append(corporate_client)
-                self.schedule.add_corporate_client(corporate_client)
+                corporate_client = CorporateClient(*_params_corporate_clientsLowRisk, bank, self)
+                bank.LowRiskpoolcorporateClients.append(corporate_client)
+                self.schedule.add_corporate_client_LowRisk(corporate_client)
+            for i in range(ExogenousFactors.numberCorporateClientsPerBank):
+                corporate_client = CorporateClient(*_params_corporate_clientsHighRisk, bank, self)
+                bank.HighRiskpoolcorporateClients.append(corporate_client)
+                self.schedule.add_corporate_client_HighRisk(corporate_client)
 
+    @jit(parallel = True)       
     def step(self):
         self.schedule.reset_cycle()
         self.schedule.period_0()
         self.schedule.period_1()
         self.schedule.period_2()
-
-    def run_model(self, n):
-        for i in range(n):
-            self.step()
-        self.running = False
-
+        
+    
+    def run_model(self, n): 
+        cycle=0             
+        while cycle<n:
+            for i in prange(n):
+                self.step()
+                cycle+=1
+                
+        while cycle<2*n and cycle>=n:
+            self.simulation_type == 'RestrictiveMonetaryPolicy'
+            for i in prange(n):
+                self.step()
+                cycle+=1
+                
+        self.running = False        
+        
     def normalize_banks(self):
         # Normalize banks size and Compute market share (in % of total assets)
         total_size = sum([_.initialSize for _ in self.schedule.banks])
@@ -103,6 +123,7 @@ class BankingModel(Model):
         for bank in self.schedule.banks:
             bank.marketShare = bank.initialSize / total_size
             bank.initialSize *= factor
+   
 
     @staticmethod
     def update_exogeneous_factors(exogenous_factors, number_of_banks):
@@ -138,3 +159,18 @@ class BankingModel(Model):
             ExogenousFactors.isDepositInsuranceAvailable = True
         elif simulation_type == SimulationType.DepositInsuranceBenchmark:
             ExogenousFactors.areDepositorsZeroIntelligenceAgents = False
+
+        elif simulation_type == SimulationType.RestrictiveMonetaryPolicy:
+            ExogenousFactors.interbankInterestRate = 0.02
+            ExogenousFactors.LowRiskCorporateClientDefaultRate = 0.06
+            ExogenousFactors.HighRiskCorporateClientDefaultRate = 0.10
+            ExogenousFactors.HighRiskCorporateClientLoanInterestRate = 0.10
+            ExogenousFactors.LowRiskCorporateClientLoanInterestRate = 0.08
+            ExogenousFactors.probabilityofWithdrawal = 0.20
+        elif simulation_type == SimulationType.ExpansiveMonetaryPolicy:
+            ExogenousFactors.interbankInterestRate = 0.005
+            ExogenousFactors.LowRiskCorporateClientDefaultRate = 0.02
+            ExogenousFactors.HighRiskCorporateClientDefaultRate = 0.03
+            ExogenousFactors.HighRiskCorporateClientLoanInterestRate = 0.12
+            ExogenousFactors.LowRiskCorporateClientLoanInterestRate = 0.045
+            ExogenousFactors.probabilityofWithdrawal = 0.10
