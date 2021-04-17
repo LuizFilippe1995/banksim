@@ -103,9 +103,9 @@ class ClearingHouse(Agent):
 
     def sort_queues_by_risk(self, simulation, bank_id_simulating, strategy_simulated):
 
-        def bank_to_alpha_beta(_bank):
+        def bank_to_alpha_beta_gamma(_bank):
             strategy = _bank.interbankHelper.riskSorting
-            return strategy.get_alpha_value(), strategy.get_beta_value()
+            return strategy.get_alpha_value(), strategy.get_beta_value(), strategy.get_gamma_value()
 
         for bank in self.banksOfferingLiquidity:
             if simulation and bank.unique_id == bank_id_simulating:
@@ -119,8 +119,8 @@ class ClearingHouse(Agent):
             else:
                 bank.interbankHelper.riskSorting = bank.currentlyChosenStrategy
 
-        self.banksOfferingLiquidity.sort(key=bank_to_alpha_beta).reverse()
-        self.banksNeedingLiquidity.sort(key=bank_to_alpha_beta).reverse()
+        self.banksOfferingLiquidity.sort(key=bank_to_alpha_beta_gamma).reverse()
+        self.banksNeedingLiquidity.sort(key=bank_to_alpha_beta_gamma).reverse()
 
     def interbank_clearing_guarantee(self, banks):
         self.calculate_total_and_biggest_interbank_debt(banks)
@@ -135,6 +135,7 @@ class ClearingHouse(Agent):
                 self.totalInterbankDebt = self.totalInterbankDebt - bank.balanceSheet.interbankLoan
 
     def organize_guarantees(self, banks):
+         
         for bank in banks:
             bank.reset_collateral()
             if not bank.is_interbank_creditor():
@@ -144,7 +145,9 @@ class ClearingHouse(Agent):
                 # both assets can be used as collateral
                 g_helper.feasibleCollateral = min(
                     g_helper.potentialCollateral,
-                    bank.balanceSheet.liquidAssets + bank.balanceSheet.nonFinancialSectorLoan)
+                    bank.balanceSheet.liquidAssets + bank.balanceSheet.nonFinancialSectorLoanLowRisk + bank.balanceSheet.nonFinancialSectorLoanHighRisk
+                )
+                   
                 # minimize to avoid insolvent bank to use collateral
                 g_helper.feasibleCollateral = min(
                     g_helper.feasibleCollateral,
@@ -185,7 +188,13 @@ class ClearingHouse(Agent):
             # final total collateral
             g_helper.collateralAdjustment = g_helper.outstandingAmountImpact + g_helper.redistributedCollateral
             collateral = g_helper.feasibleCollateral - g_helper.collateralAdjustment
-            bank.balanceSheet.nonFinancialSectorLoan += - max(0, collateral - bank.balanceSheet.liquidAssets)
+            
+            bank.balanceSheet.nonFinancialSectorLoanLowRisk += \
+            - max(0, collateral - bank.balanceSheet.liquidAssets)*0.5
+            
+            bank.balanceSheet.nonFinancialSectorLoanHighRisk += \
+            - max(0, collateral - bank.balanceSheet.liquidAssets)*0.5
+            
             bank.balanceSheet.liquidAssets += -min(bank.balanceSheet.liquidAssets, collateral)
 
     def interbank_contagion(self, banks, central_bank):
