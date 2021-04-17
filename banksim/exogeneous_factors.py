@@ -42,7 +42,7 @@ class ExogenousFactors:
     areBanksZeroIntelligenceAgents = False
 
     # Central Bank
-    centralBankLendingInterestRate = 0.04 
+    centralBankLendingInterestRate = 0.05 
     offersDiscountWindowLending = True
     minimumCapitalAdequacyRatio = -10
     isCentralBankZeroIntelligenceAgent = True
