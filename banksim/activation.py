@@ -38,7 +38,7 @@ class MultiStepActivation:
     def agents(self):
         # The order is important
         return itertools.chain(self.depositors, self.banks, [self.clearing_house], [self.central_bank],
-                               self.LowRiskpoolcorporate_clients, self.HighRiskpoolcorporate_clients)
+                               self.HighRiskpoolcorporate_clients, self.LowRiskpoolcorporate_clients)
 
     def reset_cycle(self):
         self.cycle += 1
