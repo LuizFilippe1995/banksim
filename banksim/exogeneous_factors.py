@@ -10,8 +10,10 @@ class SimulationType(Enum):
     BaselBenchmark = 6
     DepositInsurance = 7
     DepositInsuranceBenchmark = 8
+    RestrictiveMonetaryPolicy = 9
+    ExpansiveMonetaryPolicy = 10
 
-
+    
 class BankSizeDistribution(Enum):
     Vanilla = 1
     LogNormal = 2
@@ -24,9 +26,9 @@ class InterbankPriority(Enum):
 
 class ExogenousFactors:
     # Model
-    numberBanks = 10
-    depositInterestRate = 0.005
-    interbankInterestRate = 0.01
+    numberBanks = 50
+    depositInterestRate = 0.005 
+    interbankInterestRate = 0.01  
     liquidAssetsInterestRate = 0
     illiquidAssetDiscountRate = 0.15
     interbankLendingMarketAvailable = True
@@ -40,16 +42,16 @@ class ExogenousFactors:
     areBanksZeroIntelligenceAgents = False
 
     # Central Bank
-    centralBankLendingInterestRate = 0.04
+    centralBankLendingInterestRate = 0.04 
     offersDiscountWindowLending = True
     minimumCapitalAdequacyRatio = -10
     isCentralBankZeroIntelligenceAgent = True
-    isCapitalRequirementActive = False
+    isCapitalRequirementActive = True # era false
     isTooBigToFailPolicyActive = False
-    isDepositInsuranceAvailable = False
+    isDepositInsuranceAvailable = True # era false
 
     # Clearing House
-    isClearingGuaranteeAvailable = False
+    isClearingGuaranteeAvailable = True
     interbankPriority = InterbankPriority.Random
 
     # Depositors
@@ -59,23 +61,18 @@ class ExogenousFactors:
     probabilityofWithdrawal = 0.15
 
     # Firms / Corporate Clients
-    standardCorporateClients = True
-    standardCorporateClientDefaultRate = 0.045
-    standardCorporateClientLossGivenDefault = 1
-    standardCorporateClientLoanInterestRate = 0.08
-    wholesaleCorporateClientDefaultRate = 0.04
-    wholesaleCorporateClientLoanInterestRate = 0.06
-    wholesaleCorporateClientLossGivenDefault = 1
-    retailCorporateClientDefaultRate = 0.06
-    # retailCorporateClientLoanInterestRate = 0.08
-    # retailCorporateClientLossGivenDefault = 0.75
-
+    HighRiskCorporateClientDefaultRate = 0.07
+    HighRiskCorporateClientLossGivenDefault = 1
+    HighRiskCorporateClientLoanInterestRate = 0.08
+    LowRiskCorporateClientDefaultRate = 0.04
+    LowRiskCorporateClientLoanInterestRate = 0.06
+    LowRiskCorporateClientLossGivenDefault = 1
+    
     # Risk Weights
     CashRiskWeight = 0
-    CorporateLoanRiskWeight = 1
+    HighRiskCorporateLoanRiskWeight = 1
     InterbankLoanRiskWeight = 1
-    retailCorporateLoanRiskWeight = 0.75
-    wholesaleCorporateLoanRiskWeight = 1
-
+    LowRiskCorporateLoanRiskWeight = 0.8
+    
     # Learning
     DefaultEWADampingFactor = 1
