@@ -13,7 +13,8 @@ class MultiStepActivation:
         self.clearing_house = None
         self.banks = []
         self.depositors = []
-        self.corporate_clients = []
+        self.LowRiskpoolcorporate_clients = []
+        self.HighRiskpoolcorporate_clients = []
 
     def add_central_bank(self, central_bank):
         self.central_bank = central_bank
@@ -27,14 +28,17 @@ class MultiStepActivation:
     def add_depositor(self, depositor):
         self.depositors.append(depositor)
 
-    def add_corporate_client(self, corporate_client):
-        self.corporate_clients.append(corporate_client)
+    def add_corporate_client_HighRisk(self, corporate_client):
+        self.HighRiskpoolcorporate_clients.append(corporate_client)
+    
+    def add_corporate_client_LowRisk(self, corporate_client):
+        self.LowRiskpoolcorporate_clients.append(corporate_client)
 
     @property
     def agents(self):
         # The order is important
         return itertools.chain(self.depositors, self.banks, [self.clearing_house], [self.central_bank],
-                               self.corporate_clients)
+                               self.LowRiskpoolcorporate_clients, self.HighRiskpoolcorporate_clients)
 
     def reset_cycle(self):
         self.cycle += 1
