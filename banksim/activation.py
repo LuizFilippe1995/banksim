@@ -15,6 +15,7 @@ class MultiStepActivation:
         self.depositors = []
         self.LowRiskpoolcorporate_clients = []
         self.HighRiskpoolcorporate_clients = []
+        self.corporate_clients = []
 
     def add_central_bank(self, central_bank):
         self.central_bank = central_bank
@@ -34,12 +35,19 @@ class MultiStepActivation:
     def add_corporate_client_LowRisk(self, corporate_client):
         self.LowRiskpoolcorporate_clients.append(corporate_client)
 
+    def add_corporate_client(self, corporate_client):
+        self.corporate_clients.append(corporate_client)     
+        
     @property
     def agents(self):
-        # The order is important
-        return itertools.chain(self.depositors, self.banks, [self.clearing_house], [self.central_bank],
-                               self.HighRiskpoolcorporate_clients, self.LowRiskpoolcorporate_clients)
-
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            # The order is important
+            return itertools.chain(self.depositors, self.banks, [self.clearing_house], [self.central_bank],
+                                   self.HighRiskpoolcorporate_clients, self.LowRiskpoolcorporate_clients)
+        else:
+            return itertools.chain(self.depositors, self.banks, [self.clearing_house], [self.central_bank],
+                               self.corporate_clients)
+        
     def reset_cycle(self):
         self.cycle += 1
         for _ in self.agents:
