@@ -62,6 +62,7 @@ class BankingModel(Model):
             bank = Bank(*_params, self)
             self.schedule.add_bank(bank)
         self.normalize_banks()
+        
 
         _params_depositors = (
             not ExogenousFactors.areDepositorsZeroIntelligenceAgents,
@@ -69,30 +70,47 @@ class BankingModel(Model):
 
         # Depositors and Corporate Clients (Firms)
         
+        if ExogenousFactors.isMonetaryPolicyAvailable:        
+            _params_corporate_clientsHighRisk = (ExogenousFactors.HighRiskCorporateClientDefaultRate,
+                                             ExogenousFactors.HighRiskCorporateClientLossGivenDefault,
+                                             ExogenousFactors.HighRiskCorporateClientLoanInterestRate)
         
-        
-        _params_corporate_clientsHighRisk = (ExogenousFactors.HighRiskCorporateClientDefaultRate,
-                                         ExogenousFactors.HighRiskCorporateClientLossGivenDefault,
-                                         ExogenousFactors.HighRiskCorporateClientLoanInterestRate)
-        
-        _params_corporate_clientsLowRisk = (ExogenousFactors.LowRiskCorporateClientDefaultRate,
-                                         ExogenousFactors.LowRiskCorporateClientLossGivenDefault,
-                                         ExogenousFactors.LowRiskCorporateClientLoanInterestRate)
+            _params_corporate_clientsLowRisk = (ExogenousFactors.LowRiskCorporateClientDefaultRate,
+                                             ExogenousFactors.LowRiskCorporateClientLossGivenDefault,
+                                             ExogenousFactors.LowRiskCorporateClientLoanInterestRate)
 
+        else:
+            if ExogenousFactors.standardCorporateClients:
+                _params_corporate_clients = (ExogenousFactors.standardCorporateClientDefaultRate,
+                                             ExogenousFactors.standardCorporateClientLossGivenDefault,
+                                             ExogenousFactors.standardCorporateClientLoanInterestRate)
+            else:
+                _params_corporate_clients = (ExogenousFactors.wholesaleCorporateClientDefaultRate,
+                                             ExogenousFactors.wholesaleCorporateClientLossGivenDefault,
+                                             ExogenousFactors.wholesaleCorporateClientLoanInterestRate)
+
+            
         for bank in self.schedule.banks:
             for i in range(ExogenousFactors.numberDepositorsPerBank):
                 depositor = Depositor(*_params_depositors, bank, self)
                 bank.depositors.append(depositor)
                 self.schedule.add_depositor(depositor)
-            for i in range(ExogenousFactors.numberCorporateClientsPerBank):
-                corporate_client = CorporateClient(*_params_corporate_clientsLowRisk, bank, self)
-                bank.LowRiskpoolcorporateClients.append(corporate_client)
-                self.schedule.add_corporate_client_LowRisk(corporate_client)
-            for i in range(ExogenousFactors.numberCorporateClientsPerBank):
-                corporate_client = CorporateClient(*_params_corporate_clientsHighRisk, bank, self)
-                bank.HighRiskpoolcorporateClients.append(corporate_client)
-                self.schedule.add_corporate_client_HighRisk(corporate_client)
-
+            
+            if ExogenousFactors.isMonetaryPolicyAvailable:
+                for i in range(ExogenousFactors.numberCorporateClientsPerBank):
+                    corporate_client = CorporateClient(*_params_corporate_clientsLowRisk, bank, self)
+                    bank.LowRiskpoolcorporateClients.append(corporate_client)
+                    self.schedule.add_corporate_client_LowRisk(corporate_client)
+                for i in range(ExogenousFactors.numberCorporateClientsPerBank):
+                    corporate_client = CorporateClient(*_params_corporate_clientsHighRisk, bank, self)
+                    bank.HighRiskpoolcorporateClients.append(corporate_client)
+                    self.schedule.add_corporate_client_HighRisk(corporate_client)
+            else:
+                for i in range(ExogenousFactors.numberCorporateClientsPerBank):
+                corporate_client = CorporateClient(*_params_corporate_clients, bank, self)
+                bank.corporateClients.append(corporate_client)
+                self.schedule.add_corporate_client(corporate_client)
+                    
     @jit(parallel = True)       
     def step(self):
         self.schedule.reset_cycle()
@@ -101,19 +119,9 @@ class BankingModel(Model):
         self.schedule.period_2()
         
     
-    def run_model(self, n): 
-        cycle=0             
-        while cycle<n:
-            for i in prange(n):
-                self.step()
-                cycle+=1
-                
-        while cycle<2*n and cycle>=n:
-            self.simulation_type == 'RestrictiveMonetaryPolicy'
-            for i in prange(n):
-                self.step()
-                cycle+=1
-                
+    def run_model(self, n):
+        for i in range(n):
+            self.step()
         self.running = False        
         
     def normalize_banks(self):
@@ -159,18 +167,17 @@ class BankingModel(Model):
             ExogenousFactors.isDepositInsuranceAvailable = True
         elif simulation_type == SimulationType.DepositInsuranceBenchmark:
             ExogenousFactors.areDepositorsZeroIntelligenceAgents = False
-
         elif simulation_type == SimulationType.RestrictiveMonetaryPolicy:
-            ExogenousFactors.interbankInterestRate = 0.02
-            ExogenousFactors.LowRiskCorporateClientDefaultRate = 0.06
-            ExogenousFactors.HighRiskCorporateClientDefaultRate = 0.10
-            ExogenousFactors.HighRiskCorporateClientLoanInterestRate = 0.10
-            ExogenousFactors.LowRiskCorporateClientLoanInterestRate = 0.08
-            ExogenousFactors.probabilityofWithdrawal = 0.20
+            ExogenousFactors.interbankInterestRate = 0.03
+            ExogenousFactors.LowRiskCorporateClientDefaultRate = 0.05
+            ExogenousFactors.HighRiskCorporateClientDefaultRate = 0.09
+            ExogenousFactors.HighRiskCorporateClientLoanInterestRate = 0.07
+            ExogenousFactors.LowRiskCorporateClientLoanInterestRate = 0.04
+            ExogenousFactors.probabilityofWithdrawal = 0.25
         elif simulation_type == SimulationType.ExpansiveMonetaryPolicy:
-            ExogenousFactors.interbankInterestRate = 0.005
+            ExogenousFactors.interbankInterestRate = 0.01
             ExogenousFactors.LowRiskCorporateClientDefaultRate = 0.02
             ExogenousFactors.HighRiskCorporateClientDefaultRate = 0.03
-            ExogenousFactors.HighRiskCorporateClientLoanInterestRate = 0.12
-            ExogenousFactors.LowRiskCorporateClientLoanInterestRate = 0.045
-            ExogenousFactors.probabilityofWithdrawal = 0.10
+            ExogenousFactors.HighRiskCorporateClientLoanInterestRate = 0.05
+            ExogenousFactors.LowRiskCorporateClientLoanInterestRate = 0.04
+            ExogenousFactors.probabilityofWithdrawal = 0.15
