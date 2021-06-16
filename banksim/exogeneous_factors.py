@@ -46,9 +46,10 @@ class ExogenousFactors:
     offersDiscountWindowLending = True
     minimumCapitalAdequacyRatio = -10
     isCentralBankZeroIntelligenceAgent = True
-    isCapitalRequirementActive = True # era false
+    isCapitalRequirementActive = False
     isTooBigToFailPolicyActive = False
-    isDepositInsuranceAvailable = True # era false
+    isDepositInsuranceAvailable = False
+    isMonetaryPolicyAvailable = False
 
     # Clearing House
     isClearingGuaranteeAvailable = True
