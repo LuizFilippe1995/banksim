@@ -2,14 +2,14 @@ import numpy as np
 
 
 class CentralBankEWAStrategy:
-    numberAlphaOptions = 10
+    numberAlphaOptions = 30
 
     def __init__(self, alpha_index_option=0):
         self.alphaIndex = alpha_index_option
         self.strategyProfit = self.strategyProfitPercentage = self.strategyProfitPercentageDamped = 0
         self.A = self.P = self.F = 0
         self.numberInsolvencies = self.totalLoans = 0
-
+    
     def get_alpha_value(self):
         return (self.alphaIndex + 1) / 100
 
@@ -17,7 +17,7 @@ class CentralBankEWAStrategy:
         if isinstance(other, self.__class__):
             return self.alphaIndex == other.alphaIndex
         return False
-
+    
     def reset(self):
         self.strategyProfit = self.strategyProfitPercentage = self.strategyProfitPercentageDamped = 0
         self.A = self.P = self.F = 0
