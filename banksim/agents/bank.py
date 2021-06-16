@@ -24,6 +24,7 @@ class Bank(Agent):
         
         self.LowRiskcorporateClients = []  # Low risk corporate clients
         self.HighRiskcorporateClients = [] # High risk corporate clients
+        self.corporateClients = []  # CorporateClients (just in case we do not consider monetary policy)
         
         self.quantityHighRiskcorporateClients = 0
         self.quantityLowRiskcorporateClients = 0
@@ -68,23 +69,24 @@ class Bank(Agent):
         self.guaranteeHelper = GuaranteeHelper()
     
     def choose_corporateClient(self, strategy=None):
-        if strategy is None:
-            strategy = self.currentlyChosenStrategy
-        self.risk_appetite = strategy.get_gamma_value()
-        self.quantityHighRiskcorporateClients = int(ExogenousFactors.numberCorporateClientsPerBank * self.risk_appetite)
-        self.quantityLowRiskcorporateClients = ExogenousFactors.numberCorporateClientsPerBank - self.quantityHighRiskcorporateClients
-        
-        self.HighRiskcorporateClients = self.HighRiskpoolcorporateClients[0:self.quantityHighRiskcorporateClients]
-        self.LowRiskcorporateClients = self.LowRiskpoolcorporateClients[0:self.quantityLowRiskcorporateClients]
-        
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            if strategy is None:
+                strategy = self.currentlyChosenStrategy
+                risk_appetite = self.currentlyChosenStrategy.get_gamma_value()
+                self.quantityHighRiskcorporateClients = int(ExogenousFactors.numberCorporateClientsPerBank * risk_appetite)                                          
+                self.quantityLowRiskcorporateClients = ExogenousFactors.numberCorporateClientsPerBank - self.quantityHighRiskcorporateClients
+                self.HighRiskcorporateClients = self.HighRiskpoolcorporateClients[0:self.quantityHighRiskcorporateClients+1]   
+                self.LowRiskcorporateClients = self.LowRiskpoolcorporateClients[0:self.quantityLowRiskcorporateClients+1]
+         
     def setup_balance_sheet_intelligent(self, strategy=None):
         if strategy is None:
             strategy = self.currentlyChosenStrategy
-            
         self.balanceSheet.liquidAssets = self.initialSize * strategy.get_beta_value()
-        self.balanceSheet.nonFinancialSectorLoanHighRisk = (self.initialSize - self.balanceSheet.liquidAssets)*self.risk_appetite                                                   
-        self.balanceSheet.nonFinancialSectorLoanLowRisk = self.initialSize - self.balanceSheet.liquidAssets - self.balanceSheet.nonFinancialSectorLoanHighRisk
-        
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            self.balanceSheet.nonFinancialSectorLoanHighRisk = (self.initialSize - self.balanceSheet.liquidAssets)*self.risk_appetite                                                   
+            self.balanceSheet.nonFinancialSectorLoanLowRisk = self.initialSize - self.balanceSheet.liquidAssets - self.balanceSheet.nonFinancialSectorLoanHighRisk
+        else:
+            self.balanceSheet.nonFinancialSectorLoan = self.initialSize - self.balanceSheet.liquidAssets
         self.balanceSheet.interbankLoan = 0
         self.balanceSheet.discountWindowLoan = 0
         self.balanceSheet.deposits = self.initialSize * (strategy.get_alpha_value() - 1)
@@ -92,14 +94,20 @@ class Bank(Agent):
         self.setup_balance_sheet()        
         
     def setup_balance_sheet(self):
-        loan_per_coporate_clientLowRisk = self.balanceSheet.nonFinancialSectorLoanLowRisk/len(self.LowRiskcorporateClients) if len(self.LowRiskcorporateClients)!= 0 else 0
-        loan_per_coporate_clientHighRisk = self.balanceSheet.nonFinancialSectorLoanHighRisk/len(self.HighRiskcorporateClients) if len(self.HighRiskcorporateClients)!=0 else 0
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            loan_per_coporate_clientLowRisk = self.balanceSheet.nonFinancialSectorLoanLowRisk/len(self.LowRiskcorporateClients) if len(self.LowRiskcorporateClients)!= 0 else 0
+            loan_per_coporate_clientHighRisk = self.balanceSheet.nonFinancialSectorLoanHighRisk/len(self.HighRiskcorporateClients) if len(self.HighRiskcorporateClients)!=0 else 0
+     
+            for corporateClient in self.LowRiskcorporateClients:
+                corporateClient.loanAmount = loan_per_coporate_clientLowRisk
         
-        for corporateClient in self.LowRiskcorporateClients:
-            corporateClient.loanAmount = loan_per_coporate_clientLowRisk
-        
-        for corporateClient in self.HighRiskcorporateClients:
-            corporateClient.loanAmount = loan_per_coporate_clientHighRisk 
+            for corporateClient in self.HighRiskcorporateClients:
+                corporateClient.loanAmount = loan_per_coporate_clientHighRisk 
+            
+        else:
+            loan_per_coporate_client = self.balanceSheet.nonFinancialSectorLoan / len(self.corporateClients)
+            for corporateClient in self.corporateClients:
+                corporateClient.loanAmount = loan_per_coporate_client
             
         deposit_per_depositor = -self.balanceSheet.deposits / len(self.depositors)
         for depositor in self.depositors:
@@ -119,37 +127,65 @@ class Bank(Agent):
     
     def adjust_capital_ratio(self, minimum_capital_ratio_required):
         current_capital_ratio = self.get_capital_adequacy_ratio()
-        if current_capital_ratio <= minimum_capital_ratio_required:
-            adjustment_factor = current_capital_ratio / minimum_capital_ratio_required
-            
-            for corporateClient in self.LowRiskcorporateClients:
-                original_loan_amount = corporateClient.loanAmount
-                new_loan_amount = original_loan_amount * adjustment_factor
-                corporateClient.loanAmount = new_loan_amount
-                self.balanceSheet.liquidAssets += (original_loan_amount - new_loan_amount)
-                
-            for corporateClient in self.HighRiskcorporateClients:
-                original_loan_amount2 = corporateClient.loanAmount
-                new_loan_amount2 = original_loan_amount2 * adjustment_factor
-                corporateClient.loanAmount = new_loan_amount2
-                self.balanceSheet.liquidAssets += (original_loan_amount2 - new_loan_amount2)
-
-                
-            self.update_non_financial_sector_loans()
-
-    def update_non_financial_sector_loans(self):
-        self.balanceSheet.nonFinancialSectorLoanLowRisk = sum(
-            client.loanAmount for client in self.LowRiskcorporateClients)
         
-        self.balanceSheet.nonFinancialSectorLoanHighRisk = sum(
-            client.loanAmount for client in self.HighRiskcorporateClients)
+        if ExogenousFactors.isMonetaryPolicyAvailable: 
+        
+            if current_capital_ratio <= minimum_capital_ratio_required:
+                adjustment_factor = current_capital_ratio / minimum_capital_ratio_required
+            
+                for corporateClient in self.LowRiskcorporateClients:
+                    original_loan_amount = corporateClient.loanAmount
+                    new_loan_amount = original_loan_amount * adjustment_factor
+                    corporateClient.loanAmount = new_loan_amount
+                    self.balanceSheet.liquidAssets += (original_loan_amount - new_loan_amount)
+                
+                for corporateClient in self.HighRiskcorporateClients:
+                    original_loan_amount2 = corporateClient.loanAmount
+                    new_loan_amount2 = original_loan_amount2 * adjustment_factor
+                    corporateClient.loanAmount = new_loan_amount2
+                    self.balanceSheet.liquidAssets += (original_loan_amount2 - new_loan_amount2)
+
+                 self.update_non_financial_sector_loans()
+
+         else:
+            if current_capital_ratio <= minimum_capital_ratio_required:
+                adjustment_factor = current_capital_ratio / minimum_capital_ratio_required
+                for corporateClient in self.corporateClients:
+                    original_loan_amount = corporateClient.loanAmount
+                    new_loan_amount = original_loan_amount * adjustment_factor
+                    corporateClient.loanAmount = new_loan_amount
+                    self.balanceSheet.liquidAssets += (original_loan_amount - new_loan_amount)
+
+                self.update_non_financial_sector_loans()
+                
+    def update_non_financial_sector_loans(self):
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            self.balanceSheet.nonFinancialSectorLoanLowRisk = sum(
+                client.loanAmount for client in self.LowRiskcorporateClients)
+            self.balanceSheet.nonFinancialSectorLoanHighRisk = sum(
+                client.loanAmount for client in self.HighRiskcorporateClients)
+        
+        else:
+            self.balanceSheet.nonFinancialSectorLoan = sum(
+            client.loanAmount for client in self.corporateClients)
         
     def get_real_sector_risk_weighted_assets(self):
-        riskLow = self.balanceSheet.nonFinancialSectorLoanLowRisk * ExogenousFactors.LowRiskCorporateLoanRiskWeight
-        riskHigh = self.balanceSheet.nonFinancialSectorLoanHighRisk * ExogenousFactors.HighRiskCorporateLoanRiskWeight
-        
-        return riskLow + riskHigh
-        
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            riskLow = self.balanceSheet.nonFinancialSectorLoanLowRisk * ExogenousFactors.LowRiskCorporateLoanRiskWeight
+            riskHigh = self.balanceSheet.nonFinancialSectorLoanHighRisk * ExogenousFactors.HighRiskCorporateLoanRiskWeight
+            return riskLow + riskHigh
+        else:
+            if ExogenousFactors.standardCorporateClients:
+            return self.balanceSheet.nonFinancialSectorLoan * ExogenousFactors.CorporateLoanRiskWeight
+            else:
+                for corporateClient in self.corporateClients:
+                    if corporateClient.probabilityOfDefault == ExogenousFactors.retailCorporateClientDefaultRate:
+                        return corporateClient.loanAmount * ExogenousFactors.retailCorporateLoanRiskWeight
+                    elif corporateClient.probabilityOfDefault == ExogenousFactors.wholesaleCorporateClientDefaultRate:
+                        return corporateClient.loanAmount * ExogenousFactors.wholesaleCorporateLoanRiskWeight
+                    else:
+                        # default risk weight
+                        return corporateClient.loanAmount * ExogenousFactors.CorporateLoanRiskWeight
         
     def withdraw_deposit(self, amount_to_withdraw):
         if amount_to_withdraw > 0:
@@ -178,13 +214,17 @@ class Bank(Agent):
             depositor.deposit.amount *= deposits_interest_rate
     
     def collect_loans(self):
-        self.balanceSheet.nonFinancialSectorLoanLowRisk = sum(
-            client.pay_loan_back() for client in self.LowRiskcorporateClients)
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            self.balanceSheet.nonFinancialSectorLoanLowRisk = sum(
+                client.pay_loan_back() for client in self.LowRiskcorporateClients)
         
-        self.balanceSheet.nonFinancialSectorLoanHighRisk = sum(
-            client.pay_loan_back() for client in self.HighRiskcorporateClients)
+            self.balanceSheet.nonFinancialSectorLoanHighRisk = sum(
+                client.pay_loan_back() for client in self.HighRiskcorporateClients)
         
-        
+        else:
+            self.balanceSheet.nonFinancialSectorLoan = sum(
+            client.pay_loan_back() for client in self.corporateClients)
+            
     def offers_liquidity(self):
         return self.liquidityNeeds > 0
 
@@ -200,42 +240,43 @@ class Bank(Agent):
         self.liquidityNeeds -= amount
     
     def use_non_liquid_assets_to_pay_depositors_back(self):
-        if self.needs_liquidity():
-            total_loans = self.balanceSheet.nonFinancialSectorLoanLowRisk + self.balanceSheet.nonFinancialSectorLoanHighRisk
-            liquidity_needed = -self.liquidityNeeds
-            total_loans_to_sell = liquidity_needed * (1 + ExogenousFactors.illiquidAssetDiscountRate)
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            if self.needs_liquidity():
+                total_loans = self.balanceSheet.nonFinancialSectorLoanLowRisk + self.balanceSheet.nonFinancialSectorLoanHighRisk
+                liquidity_needed = -self.liquidityNeeds
+                total_loans_to_sell = liquidity_needed * (1 + ExogenousFactors.illiquidAssetDiscountRate)
             
-            if total_loans > total_loans_to_sell:
+                if total_loans > total_loans_to_sell:
                 
-                # Firstly, banks sell their less risky loans because it is easier to find buyers.
-                if self.balanceSheet.nonFinancialSectorLoanLowRisk >= total_loans_to_sell:
-                    amount_sold = total_loans_to_sell
-                    self.liquidityNeeds = 0
-                    self.balanceSheet.deposits += liquidity_needed
+                    # Firstly, banks sell their less risky loans because it is easier to find buyers.
+                    if self.balanceSheet.nonFinancialSectorLoanLowRisk >= total_loans_to_sell:
+                        amount_sold = total_loans_to_sell
+                        self.liquidityNeeds = 0
+                        self.balanceSheet.deposits += liquidity_needed
                     
-                    proportion_of_illiquid_assets_sold = amount_sold / self.balanceSheet.nonFinancialSectorLoanLowRisk
+                        proportion_of_illiquid_assets_sold = amount_sold / self.balanceSheet.nonFinancialSectorLoanLowRisk
                    
-                    for firm in self.LowRiskcorporateClients:
-                        firm.loanAmount *= 1 - proportion_of_illiquid_assets_sold
+                        for firm in self.LowRiskcorporateClients:
+                            firm.loanAmount *= 1 - proportion_of_illiquid_assets_sold
                 
-                    self.balanceSheet.nonFinancialSectorLoanLowRisk -= amount_sold
+                        self.balanceSheet.nonFinancialSectorLoanLowRisk -= amount_sold
                 
-                # If not enough, banks will sell their total amount of less risky loans and part of (or the totality of) their more risky loans.
-                else:
-                    x = total_loans_to_sell - self.balanceSheet.nonFinancialSectorLoanLowRisk
-                    amount_sold = self.balanceSheet.nonFinancialSectorLoanLowRisk + (self.balanceSheet.nonFinancialSectorLoanHighRisk - x)
+                    # If not enough, banks will sell their total amount of less risky loans and part of (or the totality of) their more risky loans.
+                    else:
+                        x = total_loans_to_sell - self.balanceSheet.nonFinancialSectorLoanLowRisk
+                        amount_sold = self.balanceSheet.nonFinancialSectorLoanLowRisk + (self.balanceSheet.nonFinancialSectorLoanHighRisk - x)
                     
-                    self.liquidityNeeds = 0
-                    self.balanceSheet.deposits += liquidity_needed
-                    proportion_of_illiquid_assets_sold_HighRisk = x / self.balanceSheet.nonFinancialSectorLoanHighRisk
+                        self.liquidityNeeds = 0
+                        self.balanceSheet.deposits += liquidity_needed
+                        proportion_of_illiquid_assets_sold_HighRisk = x / self.balanceSheet.nonFinancialSectorLoanHighRisk
                                         
-                    for firm in self.LowRiskcorporateClients:
-                        firm.loanAmount *= 0
-                    for firm in self.HighRiskcorporateClients:
-                        firm.loanAmount *= (1 - proportion_of_illiquid_assets_sold_HighRisk)
+                        for firm in self.LowRiskcorporateClients:
+                            firm.loanAmount *= 0
+                        for firm in self.HighRiskcorporateClients:
+                            firm.loanAmount *= (1 - proportion_of_illiquid_assets_sold_HighRisk)
                         
-                    self.balanceSheet.nonFinancialSectorLoanLowRisk = 0
-                    self.balanceSheet.nonFinancialSectorLoanHighRisk -= x
+                        self.balanceSheet.nonFinancialSectorLoanLowRisk = 0
+                        self.balanceSheet.nonFinancialSectorLoanHighRisk -= x
                 
             else:
                 amount_sold = total_loans
@@ -251,7 +292,25 @@ class Bank(Agent):
             
                 self.balanceSheet.nonFinancialSectorLoanLowRisk = 0
                 self.balanceSheet.nonFinancialSectorLoanHighRisk = 0
-                          
+    
+        else:
+            if self.needs_liquidity():
+                liquidity_needed = -self.liquidityNeeds
+                total_loans_to_sell = liquidity_needed * (1 + ExogenousFactors.illiquidAssetDiscountRate)
+                if self.balanceSheet.nonFinancialSectorLoan > total_loans_to_sell:
+                    amount_sold = total_loans_to_sell
+                    self.liquidityNeeds = 0
+                    self.balanceSheet.deposits += liquidity_needed
+                else:
+                    amount_sold = self.balanceSheet.nonFinancialSectorLoan
+                    self.liquidityNeeds += amount_sold / (1 + ExogenousFactors.illiquidAssetDiscountRate)
+                    self.balanceSheet.deposits += liquidity_needed - self.liquidityNeeds
+                proportion_of_illiquid_assets_sold = amount_sold / self.balanceSheet.nonFinancialSectorLoan
+
+                for firm in self.corporateClients:
+                    firm.loanAmount *= 1 - proportion_of_illiquid_assets_sold
+                self.balanceSheet.nonFinancialSectorLoan -= amount_sold
+    
     def get_profit(self):
         resulting_capital = self.balanceSheet.assets + self.balanceSheet.liabilities
         original_capital = self.auxBalanceSheet.assets + self.auxBalanceSheet.liabilities
@@ -261,39 +320,70 @@ class Bank(Agent):
     
     def calculate_profit(self, minimum_capital_ratio_required):
         if self.isIntelligent:
-            strategy = self.currentlyChosenStrategy
-
-            self.bankRunOccurred = (self.withdrawalsCounter > ExogenousFactors.numberDepositorsPerBank / 2)
-
-            if self.bankRunOccurred:
-                original_loans = self.auxBalanceSheet.nonFinancialSectorLoanLowRisk + self.auxBalanceSheet.nonFinancialSectorLoanHighRisk
-                resulting_loans = self.balanceSheet.nonFinancialSectorLoanLowRisk + self.balanceSheet.nonFinancialSectorLoanHighRisk
+            if ExogenousFactors.isMonetaryPolicyAvailable:
+                strategy = self.currentlyChosenStrategy
+                self.bankRunOccurred = (self.withdrawalsCounter > ExogenousFactors.numberDepositorsPerBank / 2)
+                if self.bankRunOccurred:
+                    original_loans = self.auxBalanceSheet.nonFinancialSectorLoanLowRisk + self.auxBalanceSheet.nonFinancialSectorLoanHighRisk
+                    resulting_loans = self.balanceSheet.nonFinancialSectorLoanLowRisk + self.balanceSheet.nonFinancialSectorLoanHighRisk
                 
-                delta = original_loans - resulting_loans
-                if delta > 0:
-                    self.balanceSheet.nonFinancialSectorLoanLowRisk -= (delta * 0.02)
-                    self.balanceSheet.nonFinancialSectorLoanHighRisk -= (delta * 0.06)
+                    delta = original_loans - resulting_loans
+                    if delta > 0:
+                        self.balanceSheet.nonFinancialSectorLoanLowRisk -= (delta * 0.02)
+                        self.balanceSheet.nonFinancialSectorLoanHighRisk -= (delta * 0.06)
                     
-            profit = self.get_profit()
+                profit = self.get_profit()
 
-            strategy.strategyProfit = profit
+                strategy.strategyProfit = profit
 
-            if ExogenousFactors.isCapitalRequirementActive:
-                current_capital_ratio = self.get_capital_adequacy_ratio()
+                if ExogenousFactors.isCapitalRequirementActive:
+                    current_capital_ratio = self.get_capital_adequacy_ratio()
 
-                if current_capital_ratio < minimum_capital_ratio_required:
-                    delta_capital_ratio = minimum_capital_ratio_required - current_capital_ratio
-                    strategy.strategyProfit -= delta_capital_ratio
+                    if current_capital_ratio < minimum_capital_ratio_required:
+                        delta_capital_ratio = minimum_capital_ratio_required - current_capital_ratio
+                        strategy.strategyProfit -= delta_capital_ratio
 
-            # Return on Equity, based on initial shareholders equity.
-            strategy.strategyProfitPercentage = -strategy.strategyProfit / self.auxBalanceSheet.capital
-            strategy.strategyProfitPercentageDamped = strategy.strategyProfitPercentage * self.EWADampingFactor
+                # Return on Equity, based on initial shareholders equity.
+                strategy.strategyProfitPercentage = -strategy.strategyProfit / self.auxBalanceSheet.capital
+                strategy.strategyProfitPercentageDamped = strategy.strategyProfitPercentage * self.EWADampingFactor
+    
+            else:
+                if self.isIntelligent:
+                    strategy = self.currentlyChosenStrategy
+
+                    self.bankRunOccurred = (self.withdrawalsCounter > ExogenousFactors.numberDepositorsPerBank / 2)
+
+                    if self.bankRunOccurred:
+                        original_loans = self.auxBalanceSheet.nonFinancialSectorLoan
+                        resulting_loans = self.balanceSheet.nonFinancialSectorLoan
+                        delta = original_loans - resulting_loans
+                        if delta > 0:
+                            self.balanceSheet.nonFinancialSectorLoan -= delta * 0.02
+
+                    profit = self.get_profit()
+
+                    strategy.strategyProfit = profit
+
+                    if ExogenousFactors.isCapitalRequirementActive:
+                        current_capital_ratio = self.get_capital_adequacy_ratio()
+
+                        if current_capital_ratio < minimum_capital_ratio_required:
+                            delta_capital_ratio = minimum_capital_ratio_required - current_capital_ratio
+                            strategy.strategyProfit -= delta_capital_ratio
+
+                    # Return on Equity, based on initial shareholders equity.
+                    strategy.strategyProfitPercentage = -strategy.strategyProfit / self.auxBalanceSheet.capital
+                    strategy.strategyProfitPercentageDamped = strategy.strategyProfitPercentage * self.EWADampingFactor
     
     def liquidate(self):
-        #  first, sell assets...
-        self.balanceSheet.liquidAssets += (self.balanceSheet.nonFinancialSectorLoanLowRisk + self.balanceSheet.nonFinancialSectorLoanHighRisk)
-        self.balanceSheet.nonFinancialSectorLoanLowRisk = 0
-        self.balanceSheet.nonFinancialSectorLoanHighRisk = 0
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            #  first, sell assets...
+            self.balanceSheet.liquidAssets += (self.balanceSheet.nonFinancialSectorLoanLowRisk + self.balanceSheet.nonFinancialSectorLoanHighRisk)
+            self.balanceSheet.nonFinancialSectorLoanLowRisk = 0
+            self.balanceSheet.nonFinancialSectorLoanHighRisk = 0
+        else:
+            self.balanceSheet.liquidAssets += self.balanceSheet.nonFinancialSectorLoan
+            self.balanceSheet.nonFinancialSectorLoan = 0
     
         if self.is_interbank_creditor():
             self.balanceSheet.liquidAssets += self.balanceSheet.interbankLoan
@@ -319,8 +409,7 @@ class Bank(Agent):
                 self.balanceSheet.interbankLoan += self.balanceSheet.liquidAssets
 
         # ... finally, if there is any money left, it is proportionally divided among depositors.
-        percentage_deposits_payable = self.balanceSheet.liquidAssets / \
-        np.absolute(self.balanceSheet.deposits)
+        percentage_deposits_payable = self.balanceSheet.liquidAssets / np.absolute(self.balanceSheet.deposits)
         self.balanceSheet.deposits *= percentage_deposits_payable
 
         for depositor in self.depositors:
@@ -389,21 +478,32 @@ class BalanceSheet:
         self.interbankLoan = 0
         self.nonFinancialSectorLoanLowRisk = 0
         self.nonFinancialSectorLoanHighRisk = 0
+        self.nonFinancialSectorLoan = 0
         self.liquidAssets = 0
 
     @property
     def capital(self):
-        return -(self.liquidAssets +
-                 self.nonFinancialSectorLoanLowRisk +
-                 self.nonFinancialSectorLoanHighRisk +
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            return -(self.liquidAssets +
+                    self.nonFinancialSectorLoanLowRisk +
+                    self.nonFinancialSectorLoanHighRisk +
+                    self.interbankLoan +
+                    self.discountWindowLoan +
+                    self.deposits)
+        else:
+            return -(self.liquidAssets +
+                 self.nonFinancialSectorLoan +
                  self.interbankLoan +
                  self.discountWindowLoan +
                  self.deposits)
 
     @property
     def assets(self):
-        return self.liquidAssets + self.nonFinancialSectorLoanLowRisk + self.nonFinancialSectorLoanHighRisk + np.max(self.interbankLoan, 0)
-    
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            return self.liquidAssets + self.nonFinancialSectorLoanLowRisk + self.nonFinancialSectorLoanHighRisk + np.max(self.interbankLoan, 0)
+        else:
+            return self.liquidAssets + self.nonFinancialSectorLoan + np.max(self.interbankLoan, 0)
+
     @property
     def liabilities(self):
         return self.deposits + self.discountWindowLoan + np.min(self.interbankLoan, 0)
