@@ -36,7 +36,7 @@ class CentralBank(Agent):
     def pick_new_strategy(self):
         probability_threshold = Util.get_random_uniform(1)
         self.currentlyChosenStrategy = [s for s in self.strategiesOptionsInformation if s.F > probability_threshold][0]
-
+                                                
     def observe_banks_capital_adequacy(self, banks):
         for bank in banks:
             if bank.get_capital_adequacy_ratio() < self.minimumCapitalAdequacyRatio:
@@ -91,12 +91,17 @@ class CentralBank(Agent):
         bank.use_non_liquid_assets_to_pay_depositors_back()
 
     def punish_insolvency(self, bank):
-        insolvency_penalty_LowRisk = 0.5
-        insolvency_penalty_HighRisk = 0.8
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            insolvency_penalty_LowRisk = 0.5
+            insolvency_penalty_HighRisk = 0.8
         
-        bank.balanceSheet.nonFinancialSectorLoanLowRisk *= 1 - insolvency_penalty_LowRisk
-        bank.balanceSheet.nonFinancialSectorLoanHighRisk *= 1 - insolvency_penalty_HighRisk
-        self.insolvencyPerCycleCounter += 1
+            bank.balanceSheet.nonFinancialSectorLoanLowRisk *= 1 - insolvency_penalty_LowRisk
+            bank.balanceSheet.nonFinancialSectorLoanHighRisk *= 1 - insolvency_penalty_HighRisk
+            self.insolvencyPerCycleCounter += 1
+        else:
+            insolvency_penalty = 0.5
+            bank.balanceSheet.nonFinancialSectorLoan *= 1 - insolvency_penalty
+            self.insolvencyPerCycleCounter += 1
 
     def punish_contagion_insolvency(self, bank):
         self.insolvencyDueToContagionPerCycleCounter += 1
@@ -113,9 +118,10 @@ class CentralBank(Agent):
 
     @staticmethod
     def get_total_real_sector_loans(banks):
-        return sum([bank.balanceSheet.nonFinancialSectorLoanLowRisk for bank in banks]) +\
-    sum([bank.balanceSheet.nonFinancialSectorLoanHighRisk for bank in banks])
-               
+        if ExogenousFactors.isMonetaryPolicyAvailable:
+            return sum([bank.balanceSheet.nonFinancialSectorLoanLowRisk for bank in banks]) + sum([bank.balanceSheet.nonFinancialSectorLoanHighRisk for bank in banks])
+        else:
+             return sum([bank.balanceSheet.nonFinancialSectorLoan for bank in banks])  
 
     @staticmethod
     def liquidate_insolvent_banks(banks):
