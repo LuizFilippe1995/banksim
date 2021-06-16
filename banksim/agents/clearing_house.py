@@ -105,7 +105,7 @@ class ClearingHouse(Agent):
 
         def bank_to_alpha_beta_gamma(_bank):
             strategy = _bank.interbankHelper.riskSorting
-            return strategy.get_alpha_value(), strategy.get_beta_value(), strategy.get_gamma_value()
+            return strategy.get_alpha_value(), strategy.get_beta_value(), strategy.get_gamma_value() 
 
         for bank in self.banksOfferingLiquidity:
             if simulation and bank.unique_id == bank_id_simulating:
@@ -119,8 +119,8 @@ class ClearingHouse(Agent):
             else:
                 bank.interbankHelper.riskSorting = bank.currentlyChosenStrategy
 
-        self.banksOfferingLiquidity.sort(key=bank_to_alpha_beta_gamma).reverse()
-        self.banksNeedingLiquidity.sort(key=bank_to_alpha_beta_gamma).reverse()
+        self.banksOfferingLiquidity.sort(reverse=True, key=bank_to_alpha_beta_gamma)
+        self.banksNeedingLiquidity.sort(reverse=True, key=bank_to_alpha_beta_gamma)
 
     def interbank_clearing_guarantee(self, banks):
         self.calculate_total_and_biggest_interbank_debt(banks)
@@ -135,68 +135,121 @@ class ClearingHouse(Agent):
                 self.totalInterbankDebt = self.totalInterbankDebt - bank.balanceSheet.interbankLoan
 
     def organize_guarantees(self, banks):
-         
-        for bank in banks:
-            bank.reset_collateral()
-            if not bank.is_interbank_creditor():
+        if ExogenousFactors.isMonetaryPolicyAvailable: 
+            for bank in banks:
+                bank.reset_collateral()
+                if not bank.is_interbank_creditor():
+                    g_helper = bank.guaranteeHelper
+                    ratio = bank.balanceSheet.interbankLoan / self.totalInterbankDebt
+                    g_helper.potentialCollateral = self.biggestInterbankDebt * ratio
+                    # both assets can be used as collateral
+                    g_helper.feasibleCollateral = min(
+                        g_helper.potentialCollateral,
+                        bank.balanceSheet.liquidAssets + bank.balanceSheet.nonFinancialSectorLoanLowRisk +\
+                        +bank.balanceSheet.nonFinancialSectorLoanHighRisk)
+                    # minimize to avoid insolvent bank to use collateral
+                    g_helper.feasibleCollateral = min(
+                        g_helper.feasibleCollateral,
+                        max(0, -bank.balanceSheet.interbankLoan - min(0, bank.balanceSheet.capital)))
+
+                    # interbank debit balance impact
+                    g_helper.outstandingAmountImpact = max(
+                        0,
+                        min(
+                            bank.balanceSheet.capital + g_helper.feasibleCollateral,
+                            -bank.balanceSheet.interbankLoan))
+                    # residual collateral
+                    g_helper.residual = g_helper.feasibleCollateral - g_helper.outstandingAmountImpact
+
+            for bank in banks:
+
                 g_helper = bank.guaranteeHelper
-                ratio = bank.balanceSheet.interbankLoan / self.totalInterbankDebt
-                g_helper.potentialCollateral = self.biggestInterbankDebt * ratio
-                # both assets can be used as collateral
-                g_helper.feasibleCollateral = min(
-                    g_helper.potentialCollateral,
-                    bank.balanceSheet.liquidAssets + bank.balanceSheet.nonFinancialSectorLoanLowRisk + bank.balanceSheet.nonFinancialSectorLoanHighRisk
-                )
-                   
-                # minimize to avoid insolvent bank to use collateral
-                g_helper.feasibleCollateral = min(
-                    g_helper.feasibleCollateral,
-                    max(0, -bank.balanceSheet.interbankLoan - min(0, bank.balanceSheet.capital)))
 
-                # interbank debit balance impact
-                g_helper.outstandingAmountImpact = max(
-                    0,
-                    min(
-                        bank.balanceSheet.capital + g_helper.feasibleCollateral,
-                        -bank.balanceSheet.interbankLoan))
-                # residual collateral
-                g_helper.residual = g_helper.feasibleCollateral - g_helper.outstandingAmountImpact
+                # total of collateral deficit or surplus
+                if g_helper.residual < 0:
+                    self.totalCollateralDeficit += g_helper.residual
+                else:
+                    self.totalCollateralSurplus += g_helper.residual
 
-        for bank in banks:
+            for bank in banks:
 
-            g_helper = bank.guaranteeHelper
+                g_helper = bank.guaranteeHelper
 
-            # total of collateral deficit or surplus
-            if g_helper.residual < 0:
-                self.totalCollateralDeficit += g_helper.residual
-            else:
-                self.totalCollateralSurplus += g_helper.residual
+                # residual collateral redistributed
+                if g_helper.residual < 0:
+                    g_helper.redistributedCollateral = g_helper.residual
+                elif self.totalCollateralSurplus == 0:
+                    g_helper.redistributedCollateral = 0
+                else:
+                    f = min(1.0, -self.totalCollateralDeficit / self.totalCollateralSurplus)
+                    g_helper.redistributedCollateral = (1 - f) * g_helper.residual
 
-        for bank in banks:
-
-            g_helper = bank.guaranteeHelper
-
-            # residual collateral redistributed
-            if g_helper.residual < 0:
-                g_helper.redistributedCollateral = g_helper.residual
-            elif self.totalCollateralSurplus == 0:
-                g_helper.redistributedCollateral = 0
-            else:
-                f = min(1.0, -self.totalCollateralDeficit / self.totalCollateralSurplus)
-                g_helper.redistributedCollateral = (1 - f) * g_helper.residual
-
-            # final total collateral
-            g_helper.collateralAdjustment = g_helper.outstandingAmountImpact + g_helper.redistributedCollateral
-            collateral = g_helper.feasibleCollateral - g_helper.collateralAdjustment
+                # final total collateral
+                g_helper.collateralAdjustment = g_helper.outstandingAmountImpact + g_helper.redistributedCollateral
+                collateral = g_helper.feasibleCollateral - g_helper.collateralAdjustment
             
-            bank.balanceSheet.nonFinancialSectorLoanLowRisk += \
-            - max(0, collateral - bank.balanceSheet.liquidAssets)*0.5
+                bank.balanceSheet.nonFinancialSectorLoanLowRisk += \
+                - max(0, collateral - bank.balanceSheet.liquidAssets)*0.5
             
-            bank.balanceSheet.nonFinancialSectorLoanHighRisk += \
-            - max(0, collateral - bank.balanceSheet.liquidAssets)*0.5
+                bank.balanceSheet.nonFinancialSectorLoanHighRisk += \
+                - max(0, collateral - bank.balanceSheet.liquidAssets)*0.5
             
-            bank.balanceSheet.liquidAssets += -min(bank.balanceSheet.liquidAssets, collateral)
+                bank.balanceSheet.liquidAssets += -min(bank.balanceSheet.liquidAssets, collateral)
 
+        else:
+            for bank in banks:
+                bank.reset_collateral()
+                if not bank.is_interbank_creditor():
+                    g_helper = bank.guaranteeHelper
+                    ratio = bank.balanceSheet.interbankLoan / self.totalInterbankDebt
+                    g_helper.potentialCollateral = self.biggestInterbankDebt * ratio
+                    # both assets can be used as collateral
+                    g_helper.feasibleCollateral = min(
+                        g_helper.potentialCollateral,
+                        bank.balanceSheet.liquidAssets + bank.balanceSheet.nonFinancialSectorLoan)
+                    # minimize to avoid insolvent bank to use collateral
+                    g_helper.feasibleCollateral = min(
+                        g_helper.feasibleCollateral,
+                        max(0, -bank.balanceSheet.interbankLoan - min(0, bank.balanceSheet.capital)))
+
+                    # interbank debit balance impact
+                    g_helper.outstandingAmountImpact = max(
+                        0,
+                        min(
+                            bank.balanceSheet.capital + g_helper.feasibleCollateral,
+                            -bank.balanceSheet.interbankLoan))
+                    # residual collateral
+                    g_helper.residual = g_helper.feasibleCollateral - g_helper.outstandingAmountImpact
+
+            for bank in banks:
+
+                g_helper = bank.guaranteeHelper
+
+                # total of collateral deficit or surplus
+                if g_helper.residual < 0:
+                    self.totalCollateralDeficit += g_helper.residual
+                else:
+                    self.totalCollateralSurplus += g_helper.residual
+
+            for bank in banks:
+
+                g_helper = bank.guaranteeHelper
+
+                # residual collateral redistributed
+                if g_helper.residual < 0:
+                    g_helper.redistributedCollateral = g_helper.residual
+                elif self.totalCollateralSurplus == 0:
+                    g_helper.redistributedCollateral = 0
+                else:
+                    f = min(1.0, -self.totalCollateralDeficit / self.totalCollateralSurplus)
+                    g_helper.redistributedCollateral = (1 - f) * g_helper.residual
+
+                # final total collateral
+                g_helper.collateralAdjustment = g_helper.outstandingAmountImpact + g_helper.redistributedCollateral
+                collateral = g_helper.feasibleCollateral - g_helper.collateralAdjustment
+                bank.balanceSheet.nonFinancialSectorLoan += - max(0, collateral - bank.balanceSheet.liquidAssets)
+                bank.balanceSheet.liquidAssets += -min(bank.balanceSheet.liquidAssets, collateral)
+            
     def interbank_contagion(self, banks, central_bank):
         self.reset_vetor_recuperacao()
         for bank in banks:
